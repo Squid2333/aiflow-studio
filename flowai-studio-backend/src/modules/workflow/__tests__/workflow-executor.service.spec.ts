@@ -42,6 +42,10 @@ describe('WorkflowExecutorService', () => {
       workflow: {
         findUnique: jest.fn(),
       },
+      workflowExecution: {
+        create: jest.fn().mockResolvedValue(undefined),
+        update: jest.fn().mockResolvedValue(undefined),
+      },
     };
 
     service = new WorkflowExecutorService(mockPrisma, mockFactory);
@@ -72,6 +76,19 @@ describe('WorkflowExecutorService', () => {
       expect(result.start).toEqual({ result: 'ok' });
       expect(result.llm).toEqual({ result: 'ok' });
       expect(result.output).toEqual({ result: 'ok' });
+      expect(mockPrisma.workflowExecution.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          workflowId: 'wf_1',
+          status: 'running',
+        }),
+      });
+      expect(mockPrisma.workflowExecution.update).toHaveBeenCalledWith({
+        where: expect.objectContaining({ id: expect.any(String) }),
+        data: expect.objectContaining({
+          status: 'success',
+          completedAt: expect.any(Date),
+        }),
+      });
     });
 
     it('should throw when workflow not found', async () => {
@@ -353,6 +370,22 @@ describe('WorkflowExecutorService', () => {
           executionId,
         ),
       ).rejects.toThrow(/cancelled/i);
+
+      expect(mockPrisma.workflowExecution.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          id: executionId,
+          workflowId: 'wf_1',
+          status: 'running',
+        }),
+      });
+      expect(mockPrisma.workflowExecution.update).toHaveBeenCalledWith({
+        where: { id: executionId },
+        data: expect.objectContaining({
+          status: 'cancelled',
+          error: expect.stringMatching(/cancelled/i),
+          completedAt: expect.any(Date),
+        }),
+      });
     });
 
     it('should return false when cancelling non-existent execution', () => {
@@ -408,6 +441,39 @@ describe('WorkflowExecutorService', () => {
 
       const heartbeats = events.filter((e) => e.type === 'heartbeat');
       expect(heartbeats.length).toBeGreaterThanOrEqual(1);
+    });
+  });
+
+  describe('Execution Persistence', () => {
+    it('should mark execution failed when workflow execution throws', async () => {
+      mockPrisma.workflow.findUnique.mockResolvedValue(
+        buildWorkflow([{ id: 'fail', type: 'llm', data: {} }], []),
+      );
+
+      mockExecutor.execute.mockRejectedValue(new Error('boom'));
+
+      await expect(
+        service.executeWorkflow('wf_1', {
+          inputs: { prompt: 'test' },
+          control: { heartbeatIntervalMs: 0 },
+        }),
+      ).rejects.toThrow('boom');
+
+      expect(mockPrisma.workflowExecution.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          workflowId: 'wf_1',
+          status: 'running',
+          inputs: JSON.stringify({ prompt: 'test' }),
+        }),
+      });
+      expect(mockPrisma.workflowExecution.update).toHaveBeenCalledWith({
+        where: expect.objectContaining({ id: expect.any(String) }),
+        data: expect.objectContaining({
+          status: 'failed',
+          error: 'boom',
+          completedAt: expect.any(Date),
+        }),
+      });
     });
   });
 });

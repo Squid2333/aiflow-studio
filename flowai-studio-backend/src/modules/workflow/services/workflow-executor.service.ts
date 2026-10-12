@@ -58,6 +58,17 @@ export class WorkflowExecutorService {
     const execId = executionId || `${workflowId}_${Date.now()}`;
     const cancelToken = { cancelled: false };
     this.cancelTokens.set(execId, cancelToken);
+    const executionStartedAt = new Date();
+
+    await this.prisma.workflowExecution.create({
+      data: {
+        id: execId,
+        workflowId,
+        status: 'running',
+        inputs: this.serializeExecutionData(runDto.inputs),
+        startedAt: executionStartedAt,
+      },
+    });
 
     const nodes = JSON.parse(workflow.nodes) as any[];
     const edges = JSON.parse(workflow.edges) as any[];
@@ -340,6 +351,17 @@ export class WorkflowExecutorService {
       // 工作流整体超时控制
       await withTimeout(runLoop(), control.workflowTimeoutMs, 'workflow', workflow.name);
 
+      await this.prisma.workflowExecution.update({
+        where: { id: execId },
+        data: {
+          status: 'success',
+          context: this.serializeExecutionData(context),
+          duration: Date.now() - executionStartedAt.getTime(),
+          completedAt: new Date(),
+          error: null,
+        },
+      });
+
       // End Trace - 成功
       if (this.tracingService && traceId) {
         try {
@@ -367,11 +389,23 @@ export class WorkflowExecutorService {
     } catch (error) {
       const isTimeout = error instanceof TimeoutError;
       const isCancelled = error instanceof CancelledError;
+      const errorMessage = error instanceof Error ? error.message : String(error);
+
+      await this.prisma.workflowExecution.update({
+        where: { id: execId },
+        data: {
+          status: isCancelled ? 'cancelled' : 'failed',
+          context: this.serializeExecutionData(context),
+          duration: Date.now() - executionStartedAt.getTime(),
+          completedAt: new Date(),
+          error: errorMessage,
+        },
+      });
 
       // End Trace - 失败
       if (this.tracingService && traceId) {
         try {
-          await this.tracingService.endTrace(traceId, 'failed', undefined, error.message);
+          await this.tracingService.endTrace(traceId, 'failed', undefined, errorMessage);
         } catch (e) {
           this.logger.warn(`Failed to end trace on failure: ${e instanceof Error ? e.message : 'Unknown'}`);
         }
@@ -380,7 +414,7 @@ export class WorkflowExecutorService {
       sseSubject?.next({
         type: 'error',
         data: {
-          message: error.message,
+          message: errorMessage,
           isTimeout,
           isCancelled,
           scope: isTimeout ? (error as TimeoutError).scope : undefined,
@@ -440,6 +474,17 @@ export class WorkflowExecutorService {
     const downstream = adjList.get(nodeId) || [];
     for (const edge of downstream) {
       this.skipBranch(edge.target, adjList, skipped, sseSubject);
+    }
+  }
+
+  private serializeExecutionData(value: unknown): string | null {
+    if (value === undefined) return null;
+
+    try {
+      return JSON.stringify(value);
+    } catch {
+      this.logger.warn('Failed to serialize workflow execution payload');
+      return null;
     }
   }
 }

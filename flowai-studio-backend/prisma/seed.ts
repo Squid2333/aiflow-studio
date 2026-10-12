@@ -1,5 +1,5 @@
-import { PrismaClient } from '@prisma/client';
-import * as bcrypt from 'bcryptjs';
+import { PrismaClient } from "@prisma/client";
+import * as bcrypt from "bcryptjs";
 
 const prisma = new PrismaClient();
 
@@ -9,18 +9,21 @@ async function main() {
   // 0. 确保 pgvector 扩展已启用
   try {
     await prisma.$executeRawUnsafe(`CREATE EXTENSION IF NOT EXISTS vector;`);
-    console.log('✅ pgvector extension enabled');
+    console.log("✅ pgvector extension enabled");
   } catch (error) {
-    console.warn('⚠️  pgvector extension could not be enabled:', error instanceof Error ? error.message : error);
+    console.warn(
+      "⚠️  pgvector extension could not be enabled:",
+      error instanceof Error ? error.message : error,
+    );
   }
 
   // 1. 创建或更新 admin 用户
-  const hashedPassword = await bcrypt.hash('admin123', 10);
+  const hashedPassword = await bcrypt.hash("admin123", 10);
   const adminUser = await prisma.user.upsert({
-    where: { username: 'admin' },
+    where: { username: "admin" },
     update: { password: hashedPassword },
     create: {
-      username: 'admin',
+      username: "admin",
       password: hashedPassword,
     },
   });
@@ -28,16 +31,16 @@ async function main() {
 
   // 2. 创建或更新默认知识库
   const defaultKb = await prisma.knowledgeBase.upsert({
-    where: { name_userId: { name: '默认知识库', userId: adminUser.id } },
+    where: { name_userId: { name: "默认知识库", userId: adminUser.id } },
     update: {},
     create: {
-      name: '默认知识库',
-      description: '系统自动创建的默认知识库，包含 FlowAI Studio 的功能介绍。',
-      embeddingModel: 'text-embedding-v3',
+      name: "默认知识库",
+      description: "系统自动创建的默认知识库，包含 FlowAI Studio 的功能介绍。",
+      embeddingModel: "text-embedding-v3",
       embeddingDimension: 1024,
       chunkSize: 500,
       chunkOverlap: 50,
-      retrievalMode: 'vector',
+      retrievalMode: "vector",
       userId: adminUser.id,
     },
   });
@@ -60,10 +63,12 @@ FlowAI Studio 是一个先进的全栈可视化 AI 应用低代码编排平台�
 - 向量存储: pgvector (PostgreSQL 原生向量扩展)
 - AI: 通义千问 API (Qwen)
   `;
-  const docName = 'FlowAI Studio 功能介绍.md';
+  const docName = "FlowAI Studio 功能介绍.md";
 
   const document = await prisma.document.upsert({
-    where: { name_knowledgeBaseId: { name: docName, knowledgeBaseId: defaultKb.id } },
+    where: {
+      name_knowledgeBaseId: { name: docName, knowledgeBaseId: defaultKb.id },
+    },
     update: {
       content: docContent,
       size: Buffer.from(docContent).length,
@@ -96,11 +101,11 @@ FlowAI Studio 是一个先进的全栈可视化 AI 应用低代码编排平台�
   // seed 时使用空向量，实际运行时会通过 RAG 服务重新生成
   for (let i = 0; i < chunks.length; i++) {
     const zeroVector = Array(1024).fill(0);
-    const vectorStr = `[${zeroVector.join(',')}]`;
+    const vectorStr = `[${zeroVector.join(",")}]`;
     const escapedContent = chunks[i].replace(/'/g, "''");
 
     await prisma.$executeRawUnsafe(`
-      INSERT INTO document_chunks (id, content, embedding, chunk_index, start_index, end_index, document_id, created_at)
+      INSERT INTO "document_chunks" ("id", "content", "embedding", "chunkIndex", "startIndex", "endIndex", "documentId", "createdAt")
       VALUES (
         gen_random_uuid(),
         '${escapedContent}',
@@ -116,7 +121,7 @@ FlowAI Studio 是一个先进的全栈可视化 AI 应用低代码编排平台�
   console.log(`✅ Created ${chunks.length} chunks for default document`);
 
   // 4. 创建演示应用和工作流
-  const demoAppName = '默认RAG演示应用';
+  const demoAppName = "默认RAG演示应用";
   let demoApp = await prisma.application.findFirst({
     where: {
       name: demoAppName,
@@ -128,8 +133,8 @@ FlowAI Studio 是一个先进的全栈可视化 AI 应用低代码编排平台�
     demoApp = await prisma.application.create({
       data: {
         name: demoAppName,
-        description: '内置示例应用，可直接用于验证默认知识库与 RAG 工作流。',
-        status: 'published',
+        description: "内置示例应用，可直接用于验证默认知识库与 RAG 工作流。",
+        status: "published",
         userId: adminUser.id,
       },
     });
@@ -137,62 +142,62 @@ FlowAI Studio 是一个先进的全栈可视化 AI 应用低代码编排平台�
     demoApp = await prisma.application.update({
       where: { id: demoApp.id },
       data: {
-        description: '内置示例应用，可直接用于验证默认知识库与 RAG 工作流。',
-        status: 'published',
+        description: "内置示例应用，可直接用于验证默认知识库与 RAG 工作流。",
+        status: "published",
       },
     });
   }
   console.log(`✅ Created or updated demo application: ${demoApp.name}`);
 
-  const demoWorkflowName = '默认RAG工作流';
+  const demoWorkflowName = "默认RAG工作流";
   const demoNodes = [
     {
-      id: 'start_demo',
-      type: 'start',
+      id: "start_demo",
+      type: "start",
       position: { x: 80, y: 180 },
       data: {
-        label: '开始',
+        label: "开始",
         variables: [
           {
-            key: 'question',
-            value: 'FlowAI Studio 有什么核心特性？',
+            key: "question",
+            value: "FlowAI Studio 有什么核心特性？",
           },
         ],
       },
     },
     {
-      id: 'rag_demo',
-      type: 'rag',
+      id: "rag_demo",
+      type: "rag",
       position: { x: 340, y: 180 },
       data: {
-        label: 'RAG检索',
+        label: "RAG检索",
         knowledgeBaseId: defaultKb.id,
-        query: '{{question}}',
+        query: "{{question}}",
         topK: 3,
         similarityThreshold: 0.7,
       },
     },
     {
-      id: 'output_demo',
-      type: 'output',
+      id: "output_demo",
+      type: "output",
       position: { x: 620, y: 180 },
       data: {
-        label: '输出',
-        outputValue: '{{rag_demo.documents}}',
+        label: "输出",
+        outputValue: "{{rag_demo.documents}}",
       },
     },
   ];
 
   const demoEdges = [
     {
-      id: 'edge_start_rag',
-      source: 'start_demo',
-      target: 'rag_demo',
+      id: "edge_start_rag",
+      source: "start_demo",
+      target: "rag_demo",
     },
     {
-      id: 'edge_rag_output',
-      source: 'rag_demo',
-      target: 'output_demo',
+      id: "edge_rag_output",
+      source: "rag_demo",
+      target: "output_demo",
     },
   ];
 
@@ -207,7 +212,7 @@ FlowAI Studio 是一个先进的全栈可视化 AI 应用低代码编排平台�
     await prisma.workflow.create({
       data: {
         name: demoWorkflowName,
-        description: '内置示例工作流：开始 → RAG检索 → 输出',
+        description: "内置示例工作流：开始 → RAG检索 → 输出",
         applicationId: demoApp.id,
         nodes: JSON.stringify(demoNodes),
         edges: JSON.stringify(demoEdges),
@@ -217,7 +222,7 @@ FlowAI Studio 是一个先进的全栈可视化 AI 应用低代码编排平台�
     await prisma.workflow.update({
       where: { id: existingWorkflow.id },
       data: {
-        description: '内置示例工作流：开始 → RAG检索 → 输出',
+        description: "内置示例工作流：开始 → RAG检索 → 输出",
         nodes: JSON.stringify(demoNodes),
         edges: JSON.stringify(demoEdges),
       },
